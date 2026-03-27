@@ -1,0 +1,445 @@
+openapi: "3.1.0"
+info:
+  title: Shop API
+  version: "1.0.0"
+  description: REST API интернет-магазина (вариант 2 — по мотивам Ozon). Три микросервиса — User, Product, Cart — за единым Nginx API Gateway.
+
+servers:
+  - url: http://localhost
+    description: Локальный API Gateway (Nginx :80)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserCreate:
+      type: object
+      required: [login, first_name, last_name, password]
+      properties:
+        login:
+          type: string
+          example: Mikhail
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        password:
+          type: string
+          example: password
+
+    UserOut:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        login:
+          type: string
+          example: Mikhail
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+
+    UserWithToken:
+      allOf:
+        - $ref: '#/components/schemas/UserOut'
+        - type: object
+          properties:
+            access_token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+            token_type:
+              type: string
+              example: bearer
+
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          example: Mikhail
+        password:
+          type: string
+          example: password
+
+    TokenOut:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        token_type:
+          type: string
+          example: bearer
+
+    ProductCreate:
+      type: object
+      required: [name, description, price]
+      properties:
+        name:
+          type: string
+          example: iPhone 15
+        description:
+          type: string
+          example: Apple smartphone 6.1"
+        price:
+          type: number
+          format: float
+          example: 79990.00
+        image_url:
+          type: string
+          nullable: true
+          example: https://example.com/iphone15.jpg
+
+    ProductOut:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: iPhone 15
+        description:
+          type: string
+          example: Apple smartphone 6.1"
+        price:
+          type: number
+          format: float
+          example: 79990.00
+        image_url:
+          type: string
+          nullable: true
+          example: https://example.com/iphone15.jpg
+
+    ProductListOut:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductOut'
+        total:
+          type: integer
+          example: 42
+        skip:
+          type: integer
+          example: 0
+        limit:
+          type: integer
+          example: 20
+
+    CartItemCreate:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          type: integer
+          example: 1
+        quantity:
+          type: integer
+          default: 1
+          example: 2
+
+    CartItemOut:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 5
+        user_id:
+          type: integer
+          example: 1
+        product_id:
+          type: integer
+          example: 1
+        quantity:
+          type: integer
+          example: 2
+        product_name:
+          type: string
+          nullable: true
+          example: iPhone 15
+        price:
+          type: number
+          nullable: true
+          example: 79990.00
+
+    CartOut:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          example: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItemOut'
+        total_price:
+          type: number
+          example: 159980.00
+
+    ErrorOut:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: Not found
+
+tags:
+  - name: auth
+    description: Регистрация и аутентификация
+  - name: users
+    description: Управление пользователями
+  - name: products
+    description: Каталог товаров
+  - name: cart
+    description: Корзина покупателя
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Регистрация нового пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+            example:
+              login: Mikhail
+              first_name: John
+              last_name: Doe
+              password: password
+      responses:
+        "201":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithToken'
+        "409":
+          description: Логин уже занят
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+              example:
+                detail: Login already taken
+        "422":
+          description: Ошибка валидации
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Вход в систему
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              login: Mikhail
+              password: password
+      responses:
+        "200":
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenOut'
+        "401":
+          description: Неверный логин или пароль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+              example:
+                detail: Invalid credentials
+
+  /users/by-login:
+    get:
+      tags: [users]
+      summary: Поиск пользователя по логину
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: login
+          in: query
+          required: true
+          schema:
+            type: string
+          example: Mikhail
+      responses:
+        "200":
+          description: Пользователь найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserOut'
+        "401":
+          description: Не авторизован
+        "404":
+          description: Пользователь не найден
+
+  /users/search:
+    get:
+      tags: [users]
+      summary: Поиск пользователей по маске имени/фамилии
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Подстрока для поиска в first_name или last_name
+          example: Jo
+      responses:
+        "200":
+          description: Список совпадений
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserOut'
+        "401":
+          description: Не авторизован
+
+  /products:
+    get:
+      tags: [products]
+      summary: Список товаров
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Список товаров с пагинацией
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductListOut'
+    post:
+      tags: [products]
+      summary: Создать товар
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+            example:
+              name: iPhone 15
+              description: Apple smartphone 6.1"
+              price: 79990.00
+              image_url: https://example.com/iphone15.jpg
+      responses:
+        "201":
+          description: Товар создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductOut'
+        "401":
+          description: Не авторизован
+        "422":
+          description: Ошибка валидации
+
+  /products/{id}:
+    get:
+      tags: [products]
+      summary: Получить товар по ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        "200":
+          description: Товар найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductOut'
+        "404":
+          description: Товар не найден
+
+  /cart/items:
+    post:
+      tags: [cart]
+      summary: Добавить товар в корзину
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemCreate'
+            example:
+              product_id: 1
+              quantity: 2
+      responses:
+        "201":
+          description: Товар добавлен в корзину
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemOut'
+        "401":
+          description: Не авторизован
+        "404":
+          description: Товар не найден
+
+  /cart:
+    get:
+      tags: [cart]
+      summary: Получить корзину текущего пользователя
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Корзина пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartOut'
+              example:
+                user_id: 1
+                items:
+                  - id: 5
+                    user_id: 1
+                    product_id: 1
+                    quantity: 2
+                    product_name: iPhone 15
+                    price: 79990.00
+                total_price: 159980.00
+        "401":
+          description: Не авторизован

@@ -1,87 +1,130 @@
+# Shop API — Домашнее задание 02
 
-# Домашнее задание 01: Документирование архитектуры в Structurizr
+REST API интернет-магазина (вариант 2). Три микросервиса за Nginx API Gateway.
 
-Цель работы: Получить навык в описании архитектуры в стиле Architecture As A Code и проектировании
-системы «сверху вниз».
+Архитектура описана в `workspace.dsl` (Structurizr DSL).
 
-# Вариант 2
+## Сервисы
 
-**Магазин https://ozon.ru/**
+| Сервис | Порт | Описание |
+|--------|------|----------|
+| api-gateway | :80 | Nginx — единая точка входа |
+| user-service | :8001 | Пользователи, JWT-аутентификация |
+| product-service | :8002 | Каталог товаров |
+| cart-service | :8003 | Корзина покупателя |
 
-Приложение должно содержать следующие данные:
-- Пользователь
-- Товар
-- Корзина
-Реализовать API:
-- Создание нового пользователя
-- Поиск пользователя по логину
-- Поиск пользователя по маске имя и фамилии
-- Создание товара
-- Получение списка товаров
-- Добавление товара в корзину
-- Получение корзины для пользователя
+## Запуск
 
+```bash
+docker-compose up --build
+```
 
-## Задание
+Swagger UI после запуска:
+- http://localhost:8001/docs — User Service
+- http://localhost:8002/docs — Product Service
+- http://localhost:8003/docs — Cart Service
 
-Выполните следующие задачи:
-1. Изучите текст задания
- - Назначенный вариант
- - Изучите описание системы и требования к API
+## API Endpoints
 
-2. Определите перечень ролей пользователей и перечень внешних систем
- - Определите, какие роли пользователей будут взаимодействовать с системой
- - Определите внешние системы, с которыми ваша система будет взаимодействовать (платежные
-системы, email-сервисы, SMS-сервисы и т.д.)
+| Метод | Путь | Сервис | Auth | Описание |
+|-------|------|--------|------|----------|
+| POST | /auth/register | User | — | Регистрация |
+| POST | /auth/login | User | — | Вход |
+| GET | /users/by-login?login= | User | JWT | Поиск по логину |
+| GET | /users/search?q= | User | JWT | Поиск по маске имени/фамилии |
+| POST | /products | Product | JWT | Создать товар |
+| GET | /products | Product | — | Список товаров |
+| GET | /products/{id} | Product | — | Товар по ID |
+| POST | /cart/items | Cart | JWT | Добавить в корзину |
+| GET | /cart | Cart | JWT | Получить корзину |
 
-3. Создайте описание softwareSystem и диаграмму systemContext
- - Опишите вашу систему как softwareSystem в Structurizr DSL
- - Используйте плагин к Visual Studio Code
-https://marketplace.visualstudio.com/items?itemName=vimpelcom.c4-varp
- - Создайте диаграмму System Context (C1), показывающую систему в контексте пользователей и
-внешних систем
+## Примеры
 
-4. Продумайте основные задачи пользователей и как они могут быть реализованы
- - Определите основные use cases для каждой роли пользователя
- - Подумайте, какие контейнеры (веб-приложение, API, база данных и т.д.) необходимы для
-реализации этих задач
+### Регистрация
 
-5. Сформируйте перечень container, отвечающих за обработку событий, связанных с объектами
-предметной области
- - Определите контейнеры системы (например: Клиентский сервис, Сервис управления доставкой,
-Сервис регистрации платежей и т.д.)
- - Каждый контейнер должен отвечать за определенную функциональность из вашего варианта задания
+```bash
+curl -X POST http://localhost/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"login":"Mikhail","first_name":"Михаил","last_name":"Копылов","password":"pass123"}'
+```
 
-6. Определите взаимодействие между контейнерами
- - Опишите, как контейнеры взаимодействуют друг с другом
- - Определите основные сценарии взаимодействия (создание пользователя, создание заказа на
-доставку и т.д.)
+```json
+{
+  "id": 1,
+  "login": "Mikhail",
+  "first_name": "Михаил",
+  "last_name": "Копылов",
+  "access_token": "...",
+  "token_type": "bearer"
+}
+```
 
-7. Опишите модель container в Structurizr DSL и создайте диаграмму Container
- - Создайте описание всех контейнеров в Structurizr DSL
- - Создайте диаграмму Container (C2), показывающую контейнеры и их взаимодействие
+### Вход и сохранение токена
 
-8. Определите технологии и проставьте их на контейнерах и связях
- - Укажите технологии для каждого контейнера (например: "Web Application", "REST API",
-"PostgreSQL Database")
- - Укажите протоколы взаимодействия на связях (например: "HTTPS/REST", "JDBC")
-Домашнее задание по курсу «Архитектура программных систем»
+```bash
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"login":"Mikhail","password":"pass123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+```
 
-9. Создайте одну диаграмму dynamic для архитектурно значимого варианта использования
- - Выберите один важный сценарий из вашего варианта (отправка сообщения между пользователями,
-покупка товара в магазине, создание бронирования и т.д.)
- - Создайте диаграмму Dynamic, показывающую последовательность взаимодействия между контейнерами
-при выполнении этого сценария
+### Поиск пользователя по логину
 
-## Результат
-Результат должен быть оформлен в виде следующих файлов, размещенных в вашем GitHub репозитории:
-- `readme.md` - с текстом задания и описанием выбранного варианта
-- `workspace.dsl` - с моделью и view в формате Structurizr DSL
+```bash
+curl "http://localhost/users/by-login?login=Mikhail" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-**Критерии оценки:**
-- Корректность описания модели в Structurizr DSL
-- Полнота описания System Context и Container диаграмм
-- Правильность определения контейнеров и их взаимодействия
-- Качество Dynamic диаграммы для выбранного сценария
-- Соответствие описания выбранному варианту задания
-Домашнее задание по курсу «Архитектура программных систем»
+### Поиск по маске имени/фамилии
+
+```bash
+curl "http://localhost/users/search?q=Jo" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Создать товар
+
+```bash
+curl -X POST http://localhost/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"iPhone 15","description":"Apple smartphone","price":79990.00}'
+```
+
+### Список товаров
+
+```bash
+curl "http://localhost/products?skip=0&limit=20"
+```
+
+### Добавить в корзину
+
+```bash
+curl -X POST http://localhost/cart/items \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"product_id":1,"quantity":2}'
+```
+
+### Получить корзину
+
+```bash
+curl http://localhost/cart \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Тесты
+
+```bash
+pip install -r tests/requirements-test.txt
+python3 -m pytest tests/ -v
+```
+
+## Переменные окружения
+
+| Переменная | Default | Описание |
+|------------|---------|----------|
+| JWT_SECRET | CHANGEME | Секрет для подписи JWT |
+| JWT_ALGORITHM | HS256 | Алгоритм JWT |
+| JWT_EXPIRE_MINUTES | 60 | Срок жизни токена (user-service) |
+| PRODUCT_SERVICE_URL | http://product-service:8000 | URL product-service (cart-service) |
