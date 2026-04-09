@@ -1,23 +1,24 @@
 from typing import Optional
 
-from app import storage
+import asyncpg
+
 from app.schemas.product import ProductCreate
+from app import repository
 
 
-def create(data: ProductCreate) -> dict:
-    product_dict = {
-        "id": storage.next_id(),
-        "name": data.name,
-        "description": data.description,
-        "price": data.price,
-        "image_url": data.image_url,
-    }
-    return storage.save(product_dict)
+async def create(pool: asyncpg.Pool, data: ProductCreate) -> dict:
+    return await repository.create_product(
+        pool,
+        name=data.name,
+        description=data.description,
+        price=data.price,
+        image_url=data.image_url,
+    )
 
 
-def get_by_id(id: int) -> Optional[dict]:
-    return storage.find_by_id(id)
+async def get_by_id(pool: asyncpg.Pool, product_id: int) -> Optional[dict]:
+    return await repository.find_by_id(pool, product_id)
 
 
-def list_products(skip: int, limit: int) -> tuple:
-    return storage.list_all(skip, limit)
+async def list_products(pool: asyncpg.Pool, skip: int, limit: int) -> tuple[list[dict], int]:
+    return await repository.list_products(pool, skip, limit)

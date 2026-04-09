@@ -1,8 +1,10 @@
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from app.config import settings
+from app.db import get_pool
 from app.schemas.product import ProductCreate, ProductListOut, ProductOut
 from app.services import product_service
 
@@ -26,26 +28,28 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(_bearer
 
 
 @router.post("", status_code=201, response_model=ProductOut)
-def create_product(
+async def create_product(
     data: ProductCreate,
     current_user: dict = Depends(get_current_user),
 ):
-    result = product_service.create(data)
-    return result
+    pool: asyncpg.Pool = get_pool()
+    return await product_service.create(pool, data)
 
 
 @router.get("", status_code=200, response_model=ProductListOut)
-def list_products(
+async def list_products(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1),
 ):
-    items, total = product_service.list_products(skip, limit)
+    pool: asyncpg.Pool = get_pool()
+    items, total = await product_service.list_products(pool, skip, limit)
     return ProductListOut(items=items, total=total, skip=skip, limit=limit)
 
 
 @router.get("/{id}", status_code=200, response_model=ProductOut)
-def get_product(id: int):
-    product = product_service.get_by_id(id)
+async def get_product(id: int):
+    pool: asyncpg.Pool = get_pool()
+    product = await product_service.get_by_id(pool, id)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return product

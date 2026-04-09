@@ -1,18 +1,18 @@
 from contextlib import asynccontextmanager
-import httpx
+
 from fastapi import FastAPI
+
+from app.config import settings
+from app.db import init_pool, close_pool
 from app.routers.cart import router as cart_router
 from app.exceptions import register_exception_handlers
-import app.http_client as http_client_module
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    http_client_module._client = httpx.AsyncClient()
+    await init_pool(settings.db_url)
     yield
-    if http_client_module._client is not None:
-        await http_client_module._client.aclose()
-        http_client_module._client = None
+    await close_pool()
 
 
 app = FastAPI(title="Cart Service", version="1.0.0", lifespan=lifespan, redirect_slashes=False)

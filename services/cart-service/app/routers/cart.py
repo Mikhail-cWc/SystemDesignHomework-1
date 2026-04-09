@@ -1,7 +1,10 @@
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+
 from app.config import settings
+from app.db import get_pool
 from app.schemas.cart import CartItemCreate, CartItemOut, CartOut
 from app.services import cart_service
 
@@ -22,13 +25,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(_bearer
 
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=CartItemOut)
 async def add_item(body: CartItemCreate, current_user: dict = Depends(get_current_user)):
-    user_id = current_user["user_id"]
-    item = await cart_service.add_item(user_id, body.product_id, body.quantity)
+    pool: asyncpg.Pool = get_pool()
+    item = await cart_service.add_item(pool, current_user["user_id"], body.product_id, body.quantity)
     return CartItemOut(**item)
 
 
 @router.get("", status_code=status.HTTP_200_OK, response_model=CartOut)
 async def get_cart(current_user: dict = Depends(get_current_user)):
+    pool: asyncpg.Pool = get_pool()
     user_id = current_user["user_id"]
-    items, total_price = await cart_service.get_cart(user_id)
+    items, total_price = await cart_service.get_cart(pool, user_id)
     return CartOut(user_id=user_id, items=[CartItemOut(**i) for i in items], total_price=total_price)

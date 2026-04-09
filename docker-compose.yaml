@@ -1,33 +1,60 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/data.sql:/docker-entrypoint-initdb.d/02_data.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   user-service:
     build: ./services/user-service
     environment:
       JWT_SECRET: CHANGEME
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: "60"
+      DB_URL: postgresql://shop:shop@postgres:5432/shop
     ports:
       - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   product-service:
     build: ./services/product-service
     environment:
       JWT_SECRET: CHANGEME
       JWT_ALGORITHM: HS256
+      DB_URL: postgresql://shop:shop@postgres:5432/shop
     ports:
       - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   cart-service:
     build: ./services/cart-service
     environment:
       JWT_SECRET: CHANGEME
       JWT_ALGORITHM: HS256
-      PRODUCT_SERVICE_URL: http://product-service:8000
-    depends_on:
-      - product-service
+      DB_URL: postgresql://shop:shop@postgres:5432/shop
     ports:
       - "8003:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   api-gateway:
     image: nginx:1.25-alpine
@@ -39,3 +66,6 @@ services:
       - user-service
       - product-service
       - cart-service
+
+volumes:
+  postgres_data:
