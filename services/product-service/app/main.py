@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.db import init_pool, close_pool
+from app.db import init_pool, close_pool, init_mongo, close_mongo
 from app.exceptions import register_exception_handlers
 from app.routers.products import router as products_router
 
@@ -11,8 +11,10 @@ from app.routers.products import router as products_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool(settings.db_url)
+    init_mongo(settings.mongo_url, settings.mongo_db_name)
     yield
     await close_pool()
+    await close_mongo()
 
 
 app = FastAPI(title="Product Service", version="1.0.0", redirect_slashes=False, lifespan=lifespan)

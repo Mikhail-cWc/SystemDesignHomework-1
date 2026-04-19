@@ -72,16 +72,6 @@ components:
           type: string
           example: password
 
-    TokenOut:
-      type: object
-      properties:
-        access_token:
-          type: string
-          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        token_type:
-          type: string
-          example: bearer
-
     ProductCreate:
       type: object
       required: [name, description, price]
@@ -95,11 +85,33 @@ components:
         price:
           type: number
           format: float
+          exclusiveMinimum: 0
           example: 79990.00
         image_url:
           type: string
           nullable: true
           example: https://example.com/iphone15.jpg
+        category:
+          type: string
+          default: электроника
+          example: электроника
+        tags:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["смартфон", "apple", "ios"]
+        attributes:
+          type: object
+          additionalProperties: true
+          default: {}
+          example: {"color": "black", "storage": "256GB"}
+        images:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["https://example.com/img1.jpg"]
 
     ProductOut:
       type: object
@@ -122,6 +134,44 @@ components:
           nullable: true
           example: https://example.com/iphone15.jpg
 
+    ExtendedAttrs:
+      type: object
+      properties:
+        category:
+          type: string
+          nullable: true
+          example: электроника
+        tags:
+          type: array
+          items:
+            type: string
+          example: ["смартфон", "apple"]
+        images:
+          type: array
+          items:
+            type: string
+          example: ["https://example.com/img1.jpg"]
+        attributes:
+          type: object
+          additionalProperties: true
+          example: {"color": "black", "storage": "256GB"}
+        rating:
+          type: number
+          format: float
+          example: 4.8
+        review_count:
+          type: integer
+          example: 1024
+
+    ProductExtended:
+      allOf:
+        - $ref: '#/components/schemas/ProductOut'
+        - type: object
+          properties:
+            extended_attrs:
+              $ref: '#/components/schemas/ExtendedAttrs'
+              nullable: true
+
     ProductListOut:
       type: object
       properties:
@@ -138,6 +188,41 @@ components:
         limit:
           type: integer
           example: 20
+
+    ProductExtendedListOut:
+      type: object
+      description: Возвращается при поиске по тегам (параметр tags). Не содержит total/skip/limit — пагинация не поддерживается, максимум 100 результатов.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductExtended'
+
+    ProductAttrsUpdate:
+      type: object
+      description: Все поля опциональны. Пустой запрос трактуется как no-op.
+      properties:
+        category:
+          type: string
+          nullable: true
+          example: электроника
+        tags:
+          type: array
+          items:
+            type: string
+          nullable: true
+          example: ["смартфон", "новинка"]
+        attributes:
+          type: object
+          additionalProperties: true
+          nullable: true
+          example: {"color": "white"}
+        images:
+          type: array
+          items:
+            type: string
+          nullable: true
+          example: ["https://example.com/new.jpg"]
 
     CartItemCreate:
       type: object
@@ -255,11 +340,11 @@ paths:
               password: password
       responses:
         "200":
-          description: Успешная аутентификация
+          description: Успешная аутентификация — возвращает данные пользователя и токен
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenOut'
+                $ref: '#/components/schemas/UserWithToken'
         "401":
           description: Неверный логин или пароль
           content:
@@ -324,24 +409,39 @@ paths:
     get:
       tags: [products]
       summary: Список товаров
+      description: |
+        Без параметра `tags` — возвращает постраничный список (ProductListOut).
+        С параметром `tags` — ищет по тегам через MongoDB и возвращает расширенные данные (ProductExtendedListOut).
+        При использовании `tags` параметры `skip` и `limit` игнорируются, максимум 100 результатов.
       parameters:
         - name: skip
           in: query
           schema:
             type: integer
             default: 0
+            minimum: 0
         - name: limit
           in: query
           schema:
             type: integer
             default: 20
+            minimum: 1
+        - name: tags
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Теги через запятую: смартфон,apple"
+          example: "смартфон,apple"
       responses:
         "200":
-          description: Список товаров с пагинацией
+          description: Список товаров
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProductListOut'
+                oneOf:
+                  - $ref: '#/components/schemas/ProductListOut'
+                  - $ref: '#/components/schemas/ProductExtendedListOut'
     post:
       tags: [products]
       summary: Создать товар
@@ -358,17 +458,23 @@ paths:
               description: Apple smartphone 6.1"
               price: 79990.00
               image_url: https://example.com/iphone15.jpg
+              category: электроника
+              tags: ["смартфон", "apple", "ios"]
+              attributes:
+                color: black
+                storage: 256GB
+              images: ["https://example.com/iphone15.jpg"]
       responses:
         "201":
-          description: Товар создан
+          description: Товар создан — возвращает данные вместе с extended_attrs из MongoDB
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProductOut'
+                $ref: '#/components/schemas/ProductExtended'
         "401":
           description: Не авторизован
         "422":
-          description: Ошибка валидации
+          description: Ошибка валидации (в т.ч. price ≤ 0)
 
   /products/{id}:
     get:
@@ -381,15 +487,81 @@ paths:
           schema:
             type: integer
           example: 1
+        - name: extended
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Включить расширенные атрибуты из MongoDB
       responses:
         "200":
-          description: Товар найден
+          description: Товар найден. При extended=true включает extended_attrs из MongoDB.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProductOut'
+                $ref: '#/components/schemas/ProductExtended'
         "404":
           description: Товар не найден
+    delete:
+      tags: [products]
+      summary: Удалить товар (из PostgreSQL и MongoDB)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        "204":
+          description: Товар удалён
+        "401":
+          description: Не авторизован
+        "404":
+          description: Товар не найден
+
+  /products/{id}/attrs:
+    put:
+      tags: [products]
+      summary: Обновить расширенные атрибуты товара в MongoDB
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductAttrsUpdate'
+            example:
+              tags: ["смартфон", "новинка"]
+              category: электроника
+              attributes:
+                color: white
+      responses:
+        "200":
+          description: Атрибуты обновлены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: updated
+        "401":
+          description: Не авторизован
+        "404":
+          description: Товар не найден в MongoDB
 
   /cart/items:
     post:

@@ -32,16 +32,32 @@ services:
       postgres:
         condition: service_healthy
 
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   product-service:
     build: ./services/product-service
     environment:
       JWT_SECRET: CHANGEME
       JWT_ALGORITHM: HS256
       DB_URL: postgresql://shop:shop@postgres:5432/shop
+      MONGO_URL: mongodb://mongodb:27017
+      MONGO_DB_NAME: ozon_shop
     ports:
       - "8002:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
 
   cart-service:
@@ -69,3 +85,4 @@ services:
 
 volumes:
   postgres_data:
+  mongo_data:

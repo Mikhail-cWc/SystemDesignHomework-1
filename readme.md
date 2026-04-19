@@ -1,6 +1,10 @@
-# Shop API — Домашнее задание 03
+# Shop API — Домашние задания 03 и 04
 
-REST API интернет-магазина (вариант 2). Три микросервиса за Nginx API Gateway с PostgreSQL-базой данных.
+REST API интернет-магазина (вариант 2). Три микросервиса за Nginx API Gateway.
+
+**Хранилища данных**
+- **PostgreSQL** — пользователи, базовые данные товаров, корзина
+- **MongoDB** — расширенные атрибуты товаров (теги, характеристики, рейтинг)
 
 Архитектура описана в `workspace.dsl` (Structurizr DSL).
 
@@ -67,14 +71,15 @@ REST API интернет-магазина (вариант 2). Три микро
 |--------|------|----------|
 | api-gateway | :80 | Nginx — единая точка входа |
 | user-service | :8001 | Пользователи, JWT-аутентификация |
-| product-service | :8002 | Каталог товаров |
+| product-service | :8002 | Каталог товаров (PostgreSQL + MongoDB) |
 | cart-service | :8003 | Корзина покупателя |
 | postgres | :5432 | PostgreSQL 16 |
+| mongodb | :27017 | MongoDB 7 — расширенные атрибуты товаров |
 
 ## Запуск
 
 ```bash
-docker-compose up --build
+docker compose up --build -d
 ```
 
 PostgreSQL инициализируется автоматически: при первом запуске выполняются `db/schema.sql` и `db/data.sql`.
@@ -96,6 +101,34 @@ docker exec -it systemdesignhomework-1-postgres-1 psql -U shop shop
 docker exec -i systemdesignhomework-1-postgres-1 psql -U shop shop < db/queries.sql
 ```
 
+### Подключение к MongoDB
+
+```bash
+docker exec -it systemdesignhomework-1-mongodb-1 mongosh ozon_shop
+```
+
+### Загрузка тестовых данных MongoDB
+
+```bash
+# Валидация схемы + загрузка тестовых данных:
+docker exec -i systemdesignhomework-1-mongodb-1 mongosh ozon_shop < mongodb/validation.js
+
+# Только тестовые данные:
+docker exec -i systemdesignhomework-1-mongodb-1 mongosh ozon_shop < mongodb/data.js
+
+# CRUD-запросы и агрегации:
+docker exec -i systemdesignhomework-1-mongodb-1 mongosh ozon_shop < mongodb/queries.js
+```
+
+## MongoDB — Файлы ДЗ 04
+
+| Файл | Описание |
+|------|---------|
+| `mongodb/schema_design.md` | Документная модель, обоснование embedded/references, Polyglot Persistence |
+| `mongodb/data.js` | Тестовые данные (10 документов: 4 электроника, 3 одежда, 3 книги) |
+| `mongodb/queries.js` | CRUD-запросы: `$eq`, `$in`, `$ne`, `$gte`, `$lt`, `$and`, `$or`, `$push`, `$pull`, `$addToSet`, `$set` + aggregation pipeline |
+| `mongodb/validation.js` | `$jsonSchema` валидация коллекции `product_attrs` + 5 тестов |
+
 ## API Endpoints
 
 | Метод | Путь | Сервис | Auth | Описание |
@@ -104,9 +137,13 @@ docker exec -i systemdesignhomework-1-postgres-1 psql -U shop shop < db/queries.
 | POST | /auth/login | User | — | Вход |
 | GET | /users/by-login?login= | User | JWT | Поиск по логину |
 | GET | /users/search?q= | User | JWT | Поиск по маске имени/фамилии |
-| POST | /products | Product | JWT | Создать товар |
-| GET | /products | Product | — | Список товаров |
-| GET | /products/{id} | Product | — | Товар по ID |
+| POST | /products | Product | JWT | Создать товар (PG + MongoDB) |
+| GET | /products | Product | — | Список товаров (PG) |
+| GET | /products?tags=смартфон | Product | — | Фильтр по тегам (MongoDB) |
+| GET | /products/{id} | Product | — | Товар по ID (PG) |
+| GET | /products/{id}?extended=true | Product | — | Товар + атрибуты (PG + MongoDB) |
+| PUT | /products/{id}/attrs | Product | JWT | Обновить атрибуты (MongoDB) |
+| DELETE | /products/{id} | Product | JWT | Удалить товар (PG + MongoDB) |
 | POST | /cart/items | Cart | JWT | Добавить в корзину |
 | GET | /cart | Cart | JWT | Получить корзину |
 
@@ -143,19 +180,48 @@ curl "http://localhost/users/search?q=Иван" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Создать товар
+### Создать товар (dual-write: PostgreSQL + MongoDB)
 
 ```bash
 curl -X POST http://localhost/products \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"iPhone 15","description":"Apple smartphone","price":79990.00}'
+  -d '{
+    "name": "iPhone 15",
+    "description": "Apple smartphone",
+    "price": 79990.00,
+    "category": "электроника",
+    "tags": ["смартфон", "apple", "ios"],
+    "attributes": {"brand": "Apple", "ram_gb": 6, "storage_gb": 128},
+    "images": ["https://cdn.ozon.ru/iphone15.jpg"]
+  }'
 ```
 
-### Список товаров
+### Список товаров (только PostgreSQL)
 
 ```bash
 curl "http://localhost/products?skip=0&limit=20"
+```
+
+### Фильтр по тегам (MongoDB)
+
+```bash
+curl "http://localhost/products?tags=смартфон,apple"
+```
+
+### Товар с расширенными атрибутами (dual-read: PostgreSQL + MongoDB)
+
+```bash
+curl "http://localhost/products/1?extended=true"
+```
+
+### Обновить атрибуты товара (только MongoDB)
+
+```bash
+curl -X PUT http://localhost/products/1/attrs \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"tags": ["смартфон", "apple", "хит продаж"], "attributes": {"brand": "Apple", "ram_gb": 6}}'
 ```
 
 ### Добавить в корзину
@@ -176,9 +242,11 @@ curl http://localhost/cart \
 
 ## Переменные окружения
 
-| Переменная | Default | Описание |
-|------------|---------|----------|
-| JWT_SECRET | CHANGEME | Секрет для подписи JWT |
-| JWT_ALGORITHM | HS256 | Алгоритм JWT |
-| JWT_EXPIRE_MINUTES | 60 | Срок жизни токена (user-service) |
-| DB_URL | postgresql://shop:shop@postgres:5432/shop | Строка подключения к PostgreSQL |
+| Переменная | Default | Сервис | Описание |
+|------------|---------|--------|----------|
+| JWT_SECRET | CHANGEME | all | Секрет для подписи JWT |
+| JWT_ALGORITHM | HS256 | all | Алгоритм JWT |
+| JWT_EXPIRE_MINUTES | 60 | user | Срок жизни токена |
+| DB_URL | postgresql://shop:shop@postgres:5432/shop | all | Строка подключения к PostgreSQL |
+| MONGO_URL | mongodb://mongodb:27017 | product | Строка подключения к MongoDB |
+| MONGO_DB_NAME | ozon_shop | product | Имя базы данных MongoDB |
