@@ -2,9 +2,11 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from starlette.responses import JSONResponse
 
 from app.config import settings
 from app.db import get_pool
+from app.rate_limit import check_rate_limit
 from app.schemas.cart import CartItemCreate, CartItemOut, CartOut
 from app.services import cart_service
 
@@ -25,9 +27,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(_bearer
 
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=CartItemOut)
 async def add_item(body: CartItemCreate, current_user: dict = Depends(get_current_user)):
+    rl = await check_rate_limit(current_user["user_id"])
+
     pool: asyncpg.Pool = get_pool()
     item = await cart_service.add_item(pool, current_user["user_id"], body.product_id, body.quantity)
-    return CartItemOut(**item)
+    response = JSONResponse(
+        status_code=201,
+        content=CartItemOut(**item).model_dump(),
+    )
+    response.headers["X-RateLimit-Limit"] = str(rl["limit"])
+    response.headers["X-RateLimit-Remaining"] = str(rl["remaining"])
+    response.headers["X-RateLimit-Reset"] = str(rl["reset"])
+    return response
 
 
 @router.get("", status_code=status.HTTP_200_OK, response_model=CartOut)

@@ -1,10 +1,11 @@
-# Shop API — Домашние задания 03 и 04
+# Shop API — Домашние задания 03, 04 и 05
 
 REST API интернет-магазина (вариант 2). Три микросервиса за Nginx API Gateway.
 
 **Хранилища данных**
 - **PostgreSQL** — пользователи, базовые данные товаров, корзина
 - **MongoDB** — расширенные атрибуты товаров (теги, характеристики, рейтинг)
+- **Redis** — кеширование данных и rate limiting
 
 Архитектура описана в `workspace.dsl` (Structurizr DSL).
 
@@ -75,6 +76,7 @@ REST API интернет-магазина (вариант 2). Три микро
 | cart-service | :8003 | Корзина покупателя |
 | postgres | :5432 | PostgreSQL 16 |
 | mongodb | :27017 | MongoDB 7 — расширенные атрибуты товаров |
+| redis | :6379 | Redis 7 — кеширование и rate limiting |
 
 ## Запуск
 
@@ -250,3 +252,31 @@ curl http://localhost/cart \
 | DB_URL | postgresql://shop:shop@postgres:5432/shop | all | Строка подключения к PostgreSQL |
 | MONGO_URL | mongodb://mongodb:27017 | product | Строка подключения к MongoDB |
 | MONGO_DB_NAME | ozon_shop | product | Имя базы данных MongoDB |
+| REDIS_URL | redis://redis:6379/0 | product, cart | Строка подключения к Redis |
+
+## Оптимизация производительности (ДЗ 05)
+
+Подробная документация: [`performance_design.md`](performance_design.md)
+
+### Кеширование (Redis, Cache-Aside)
+
+| Endpoint | Ключ Redis | TTL | Инвалидация |
+|----------|-----------|-----|-------------|
+| `GET /products?skip=&limit=` | `products:list:{skip}:{limit}` | 60 сек | При создании/удалении товара |
+| `GET /products/{id}` | `products:{id}` | 120 сек | При обновлении/удалении товара |
+| `GET /products/{id}?extended=true` | `products:{id}:extended` | 120 сек | При обновлении/удалении товара |
+| `GET /products?tags=...` | `products:tags:{sorted_tags}` | 60 сек | При создании/удалении товара |
+| `GET /cart` | `cart:{user_id}` | 30 сек | При добавлении в корзину |
+
+При сбое Redis приложение работает напрямую с БД (graceful degradation).
+
+### Rate Limiting
+
+**Уровень Nginx** (Leaky Bucket по IP):
+- `/auth/*` — 10 req/s, burst=5 (защита от brute-force)
+- Все остальные endpoints — 50 req/s, burst=20
+- При превышении: HTTP 429 с JSON-телом
+
+**Уровень приложения** (Fixed Window Counter по user_id через Redis):
+- `POST /cart/items` — 30 req/мин на пользователя
+- Заголовки: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
