@@ -1,4 +1,4 @@
-# Shop API — Домашние задания 03, 04 и 05
+# Shop API — Домашние задания 03, 04, 05 и 06
 
 REST API интернет-магазина (вариант 2). Три микросервиса за Nginx API Gateway.
 
@@ -6,6 +6,7 @@ REST API интернет-магазина (вариант 2). Три микро
 - **PostgreSQL** — пользователи, базовые данные товаров, корзина
 - **MongoDB** — расширенные атрибуты товаров (теги, характеристики, рейтинг)
 - **Redis** — кеширование данных и rate limiting
+- **RabbitMQ** — шина событий для `UserRegistered` и `ProductCreated`
 
 Архитектура описана в `workspace.dsl` (Structurizr DSL).
 
@@ -77,6 +78,8 @@ REST API интернет-магазина (вариант 2). Три микро
 | postgres | :5432 | PostgreSQL 16 |
 | mongodb | :27017 | MongoDB 7 — расширенные атрибуты товаров |
 | redis | :6379 | Redis 7 — кеширование и rate limiting |
+| rabbitmq | :5672, :15672 | RabbitMQ — AMQP и Management UI |
+| notification-service | — | Consumer событий `UserRegistered` и `ProductCreated` |
 
 ## Запуск
 
@@ -90,6 +93,11 @@ Swagger UI после запуска:
 - http://localhost:8001/docs — User Service
 - http://localhost:8002/docs — Product Service
 - http://localhost:8003/docs — Cart Service
+
+RabbitMQ Management UI:
+- http://localhost:15672
+- login: `shop`
+- password: `shop`
 
 ### Подключение к PostgreSQL
 
@@ -130,6 +138,65 @@ docker exec -i systemdesignhomework-1-mongodb-1 mongosh ozon_shop < mongodb/quer
 | `mongodb/data.js` | Тестовые данные (10 документов: 4 электроника, 3 одежда, 3 книги) |
 | `mongodb/queries.js` | CRUD-запросы: `$eq`, `$in`, `$ne`, `$gte`, `$lt`, `$and`, `$or`, `$push`, `$pull`, `$addToSet`, `$set` + aggregation pipeline |
 | `mongodb/validation.js` | `$jsonSchema` валидация коллекции `product_attrs` + 5 тестов |
+
+## Event-Driven Architecture (ДЗ 06)
+
+Подробная документация:
+- [`event_driven_design.md`](event_driven_design.md) - проектирование Event-Driven архитектуры
+- [`event_catalog.md`](event_catalog.md) - каталог событий
+
+Реализованы два события:
+
+| Событие | Producer | Routing key | Consumer |
+|---------|----------|-------------|----------|
+| `UserRegistered` | user-service | `user.registered` | notification-service |
+| `ProductCreated` | product-service | `product.created` | notification-service |
+
+Проверка событий:
+
+```bash
+docker compose up --build
+```
+
+В отдельном терминале зарегистрируйте пользователя:
+
+```bash
+curl -X POST http://localhost/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"login":"event_user","first_name":"Event","last_name":"User","password":"pass123"}'
+```
+
+Получите токен:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"login":"event_user","password":"pass123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+```
+
+Создайте товар:
+
+```bash
+curl -X POST http://localhost/products \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "name": "Event Test Product",
+    "description": "Product for RabbitMQ test",
+    "price": 1000.00,
+    "category": "test",
+    "tags": ["event", "rabbitmq"],
+    "attributes": {"brand": "Test"},
+    "images": []
+  }'
+```
+
+Проверьте логи consumer:
+
+```bash
+docker compose logs notification-service
+```
 
 ## API Endpoints
 
@@ -253,6 +320,7 @@ curl http://localhost/cart \
 | MONGO_URL | mongodb://mongodb:27017 | product | Строка подключения к MongoDB |
 | MONGO_DB_NAME | ozon_shop | product | Имя базы данных MongoDB |
 | REDIS_URL | redis://redis:6379/0 | product, cart | Строка подключения к Redis |
+| RABBITMQ_URL | amqp://shop:shop@rabbitmq:5672/ | user, product, notification | Строка подключения к RabbitMQ |
 
 ## Оптимизация производительности (ДЗ 05)
 

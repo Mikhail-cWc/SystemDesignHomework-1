@@ -31,6 +31,22 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: shop
+      RABBITMQ_DEFAULT_PASS: shop
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   user-service:
     build: ./services/user-service
     environment:
@@ -38,10 +54,13 @@ services:
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: "60"
       DB_URL: postgresql://shop:shop@postgres:5432/shop
+      RABBITMQ_URL: amqp://shop:shop@rabbitmq:5672/
     ports:
       - "8001:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   mongodb:
@@ -65,6 +84,7 @@ services:
       MONGO_URL: mongodb://mongodb:27017
       MONGO_DB_NAME: ozon_shop
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://shop:shop@rabbitmq:5672/
     ports:
       - "8002:8000"
     depends_on:
@@ -73,6 +93,8 @@ services:
       mongodb:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   cart-service:
@@ -90,6 +112,14 @@ services:
       redis:
         condition: service_healthy
 
+  notification-service:
+    build: ./services/notification-service
+    environment:
+      RABBITMQ_URL: amqp://shop:shop@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   api-gateway:
     image: nginx:1.25-alpine
     volumes:
@@ -105,3 +135,4 @@ volumes:
   postgres_data:
   mongo_data:
   redis_data:
+  rabbitmq_data:

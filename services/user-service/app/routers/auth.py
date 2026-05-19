@@ -1,12 +1,15 @@
 import asyncpg
+import logging
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.user import LoginRequest, TokenOut, UserCreate, UserWithToken
 from app.services import auth_service, user_service
 from app import repository
 from app.db import get_pool
+from app.events import publish_event
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", status_code=201, response_model=UserWithToken)
@@ -15,6 +18,19 @@ async def register(data: UserCreate):
     if await repository.login_exists(pool, data.login):
         raise HTTPException(status_code=409, detail="Login already taken")
     user = await user_service.create_user(pool, data)
+    try:
+        await publish_event(
+            "UserRegistered",
+            "user.registered",
+            {
+                "user_id": user["id"],
+                "login": user["login"],
+                "first_name": user["first_name"],
+                "last_name": user["last_name"],
+            },
+        )
+    except Exception:
+        logger.exception("Failed to publish UserRegistered event")
     token = auth_service.create_token(user["id"], user["login"])
     return UserWithToken(
         id=user["id"],

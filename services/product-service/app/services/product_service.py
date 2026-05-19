@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -8,10 +9,12 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.schemas.product import ProductCreate, ProductAttrsUpdate
 from app import repository
+from app.events import publish_event
 from app.redis_client import get_redis
 
 CACHE_TTL_LIST = 60
 CACHE_TTL_ITEM = 120
+logger = logging.getLogger(__name__)
 
 
 def _serialize(obj):
@@ -60,6 +63,20 @@ async def create(pool: asyncpg.Pool, mongo_db: AsyncIOMotorDatabase, data: Produ
         images=data.images,
     )
     await _invalidate_lists()
+    try:
+        await publish_event(
+            "ProductCreated",
+            "product.created",
+            {
+                "product_id": result["id"],
+                "name": result["name"],
+                "price": result["price"],
+                "category": data.category,
+                "tags": data.tags,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to publish ProductCreated event")
     return result
 
 

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     mongo_url: str = "mongodb://localhost:27017"
     mongo_db_name: str = "ozon_shop"
     redis_url: str = "redis://localhost:6379/0"
+    rabbitmq_url: str = "amqp://shop:shop@localhost:5672/"
 
 
 settings = Settings()
